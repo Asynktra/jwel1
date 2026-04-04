@@ -28,6 +28,8 @@ let setDocRef = null;
 let onSnapshotRef = null;
 let queryRef = null;
 let orderByRef = null;
+let whereRef = null;
+let limitRef = null;
 let serverTimestampRef = null;
 
 let storageRef = null;
@@ -87,6 +89,8 @@ async function ensureInitialized() {
 			onSnapshotRef = fsMod.onSnapshot || null;
 			queryRef = fsMod.query || null;
 			orderByRef = fsMod.orderBy || null;
+			whereRef = fsMod.where || null;
+			limitRef = fsMod.limit || null;
 			serverTimestampRef = fsMod.serverTimestamp || null;
 
 			storageRef = storageMod.ref;
@@ -143,6 +147,8 @@ export {
 	onSnapshotRef as onSnapshot,
 	queryRef as query,
 	orderByRef as orderBy,
+	whereRef as where,
+	limitRef as limit,
 	serverTimestampRef as serverTimestamp,
 	storageRef as ref,
 	uploadBytesRef as uploadBytes,

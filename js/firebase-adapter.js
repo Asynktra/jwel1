@@ -22,11 +22,32 @@ let _state = {
   onSnapshot: null,
   query: null,
   orderBy: null,
+  where: null,
+  limit: null,
   serverTimestamp: null,
   signInWithEmailAndPassword: null,
   signOut: null,
   onAuthStateChanged: null
 };
+
+const DEFAULT_SETTINGS = { whatsappNumber: '919961165503' };
+const SETTINGS_CACHE_TTL_MS = 5 * 60 * 1000;
+let _settingsCache = null;
+let _settingsCacheAt = 0;
+
+function normalizeSettings(data) {
+  const merged = { ...DEFAULT_SETTINGS, ...(data || {}) };
+  if (!merged.whatsappNumber) {
+    merged.whatsappNumber = DEFAULT_SETTINGS.whatsappNumber;
+  }
+  return merged;
+}
+
+function setSettingsCache(data) {
+  _settingsCache = normalizeSettings(data);
+  _settingsCacheAt = Date.now();
+  return _settingsCache;
+}
 
 function cacheOrderLocally(orderRecord) {
   if (typeof localStorage === 'undefined') return;
@@ -83,8 +104,10 @@ async function init() {
       _state.setDoc = cfg.setDoc;
       _state.onSnapshot = cfg.onSnapshot;
       _state.query = cfg.query;
-  _state.orderBy = cfg.orderBy;
-  _state.serverTimestamp = cfg.serverTimestamp || null;
+        _state.orderBy = cfg.orderBy;
+        _state.where = cfg.where || null;
+        _state.limit = cfg.limit || null;
+        _state.serverTimestamp = cfg.serverTimestamp || null;
       _state.ref = cfg.ref;
       _state.uploadBytes = cfg.uploadBytes;
       _state.getDownloadURL = cfg.getDownloadURL;
@@ -237,17 +260,46 @@ async function addOrder(order){
 async function resolveOrderDocId(orderId) {
   await init();
   if (!_state.useFirestore || !orderId) return null;
+  const lookup = String(orderId);
+
+  if (_state.getDoc && _state.doc) {
+    try {
+      const directRef = _state.doc(_state.db, 'orders', lookup);
+      const directSnap = await _state.getDoc(directRef);
+      if (directSnap && directSnap.exists && directSnap.exists()) {
+        return directSnap.id;
+      }
+    } catch (err) {
+      console.warn('Direct order ID lookup failed:', err);
+    }
+  }
+
+  if (_state.collection && _state.getDocs && _state.query && _state.where && _state.limit) {
+    try {
+      const col = _state.collection(_state.db, 'orders');
+      const q = _state.query(col, _state.where('orderId', '==', lookup), _state.limit(1));
+      const snap = await _state.getDocs(q);
+      if (!snap.empty && snap.docs && snap.docs[0]) {
+        return snap.docs[0].id;
+      }
+      return null;
+    } catch (err) {
+      console.warn('Order ID query lookup failed:', err);
+    }
+  }
+
+  // Compatibility fallback for environments without query helpers.
   if (!_state.collection || !_state.getDocs) return null;
   const snapshot = await _state.getDocs(_state.collection(_state.db, 'orders'));
   let resolved = null;
   snapshot.forEach(docSnap => {
     if (resolved) return;
     const data = docSnap.data();
-    if (String(docSnap.id) === String(orderId)) {
+    if (String(docSnap.id) === lookup) {
       resolved = docSnap.id;
       return;
     }
-    if (data && data.orderId && String(data.orderId) === String(orderId)) {
+    if (data && data.orderId && String(data.orderId) === lookup) {
       resolved = docSnap.id;
     }
   });
@@ -459,27 +511,39 @@ async function uploadImage(fileOrDataUrl) {
 // Settings API (Firestore-only)
 async function getSettings() {
   await init();
+  const cacheAge = Date.now() - _settingsCacheAt;
+  if (_settingsCache && cacheAge >= 0 && cacheAge < SETTINGS_CACHE_TTL_MS) {
+    return _settingsCache;
+  }
+
   if (_state.useFirestore) {
     try {
+      if (_state.getDoc && _state.doc) {
+        const appDocRef = _state.doc(_state.db, 'settings', 'app');
+        const appSnap = await _state.getDoc(appDocRef);
+        if (appSnap && appSnap.exists && appSnap.exists()) {
+          console.log('[Firebase] Loaded settings from settings/app');
+          return setSettingsCache(appSnap.data());
+        }
+      }
+
       const snapshot = await _state.getDocs(_state.collection(_state.db, 'settings'));
       if (snapshot.empty) {
         console.log('[Firebase] No settings found, returning defaults');
-  return { whatsappNumber: '919961165503' };
+        return setSettingsCache(DEFAULT_SETTINGS);
       }
-      // Get the first (and should be only) settings document
       const settingsDoc = snapshot.docs.find(docSnap => docSnap.id === 'app') || snapshot.docs[0];
       const data = settingsDoc.data();
       console.log('[Firebase] Loaded settings from Firestore');
-      return data;
+      return setSettingsCache(data);
     } catch (err) {
       console.warn('Failed to read settings from Firestore:', err);
-      // Return defaults instead of throwing
       console.log('[Firebase] Returning default settings');
-  return { whatsappNumber: '919961165503' };
+      return setSettingsCache(DEFAULT_SETTINGS);
     }
   } else {
     console.warn('Firebase is not initialized. Returning default settings.');
-  return { whatsappNumber: '919961165503' };
+    return setSettingsCache(DEFAULT_SETTINGS);
   }
 }
 
@@ -494,6 +558,7 @@ async function saveSettings(settings) {
       } else {
         await _state.updateDoc(docRef, settings);
       }
+      setSettingsCache(settings);
       console.log('[Firebase] Settings updated');
       return true;
     } catch (err) {
@@ -502,6 +567,7 @@ async function saveSettings(settings) {
         try {
           const colRef = _state.collection(_state.db, 'settings');
           await _state.addDoc(colRef, { ...settings, _id: 'app' });
+          setSettingsCache(settings);
           console.log('[Firebase] Settings created');
           return true;
         } catch (createErr) {

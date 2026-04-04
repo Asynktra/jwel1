@@ -126,19 +126,25 @@
               allOk = false;
             }
 
-            try {
-              const fsMod = await import('https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js');
-              const docRef = await fsMod.addDoc(fsMod.collection(db, 'health_checks'), { at: new Date().toISOString(), ok: true });
-              fsEl.appendChild(li('warn', `Write allowed (doc ${docRef.id}); you may be signed in with elevated privileges`));
-              summaryBits.push('FS Write: allowed');
-            } catch (err) {
-              const code = err?.code || err?.message || String(err);
-              const permissionBlocked = typeof code === 'string' && code.includes('permission');
-              fsEl.appendChild(li(permissionBlocked ? 'ok' : 'err', permissionBlocked ? 'Write blocked as expected for non-admin' : `Write failed: ${code}`));
-              summaryBits.push(permissionBlocked ? 'FS Write: blocked (expected)' : 'FS Write: error');
-              if (!permissionBlocked) {
-                allOk = false;
+            const shouldRunWriteTest = new URLSearchParams(window.location.search).get('writeTest') === '1';
+            if (shouldRunWriteTest) {
+              try {
+                const fsMod = await import('https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js');
+                const docRef = await fsMod.addDoc(fsMod.collection(db, 'health_checks'), { at: new Date().toISOString(), ok: true });
+                fsEl.appendChild(li('warn', `Write allowed (doc ${docRef.id}); writeTest=1 is enabled`));
+                summaryBits.push('FS Write: allowed');
+              } catch (err) {
+                const code = err?.code || err?.message || String(err);
+                const permissionBlocked = typeof code === 'string' && code.includes('permission');
+                fsEl.appendChild(li(permissionBlocked ? 'ok' : 'err', permissionBlocked ? 'Write blocked as expected for non-admin' : `Write failed: ${code}`));
+                summaryBits.push(permissionBlocked ? 'FS Write: blocked (expected)' : 'FS Write: error');
+                if (!permissionBlocked) {
+                  allOk = false;
+                }
               }
+            } else {
+              fsEl.appendChild(li('warn', 'Write test skipped by default (append ?writeTest=1 to run)'));
+              summaryBits.push('FS Write: skipped');
             }
           } else {
             fsEl.appendChild(li('err', 'Firestore not initialized'));

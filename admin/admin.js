@@ -736,41 +736,6 @@ const path=window.location.pathname;
     renderOrdersTable();
     updatePreview();
 
-    // Ensure Firestore products are shown even if localStorage had stale/dummy data
-    (async function ensureRemoteProducts(){
-        try{
-            const st = await FirebaseAdapter.init();
-            if(!st.useFirestore) return;
-            const loader = document.getElementById('products-loading');
-            if(loader){ loader.hidden = false; }
-            const remote = await FirebaseAdapter.getProducts();
-            if(Array.isArray(remote) && remote.length){
-                const mapped = remote.map(p=>({
-                    id: p.id || p._docId || `prod_${Date.now()}_${Math.floor(Math.random()*1000)}`,
-                    name: p.name||'',
-                    price: p.price||0,
-                    description: p.description||'',
-                    category: p.category||'',
-                    imageUrl: p.imageUrl||'',
-                    _docId: p._docId || p.id || null
-                }));
-                // Keep any local unsynced items (no _docId) and append remote
-                const locals = Array.isArray(products)?products.filter(p=>!p._docId):[];
-                products = __dedupeProducts([...locals, ...mapped]);
-                __persistProducts(products);
-                refreshCategoryOptions();
-                renderCards();
-                renderTable();
-                if(productCountEl) productCountEl.textContent = `${products.length} products`;
-            }
-            if(loader){ loader.hidden = true; }
-        }catch(err){
-            console.warn('Remote product refresh skipped', err);
-            const loader = document.getElementById('products-loading');
-            if(loader){ loader.hidden = true; }
-        }
-    })();
-
     // Real-time sync when Firestore is available
     try{
         FirebaseAdapter.onProductsSnapshot?.((arr)=>{
